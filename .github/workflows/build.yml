@@ -1,0 +1,73 @@
+name: Build TrollStore
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+        
+    - name: Install dependencies
+      run: |
+        brew install ldid
+        brew install make
+        brew install libarchive
+        mkdir -p $HOME/theos
+        git clone --recursive https://github.com/theos/theos.git $HOME/theos
+        
+        # 下载并安装SDK
+        mkdir -p $HOME/theos/sdks
+        curl -L -o ios.zip https://github.com/theos/sdks/archive/master.zip
+        unzip ios.zip
+        mv sdks-master/*.sdk $HOME/theos/sdks/
+        rm -rf sdks-master ios.zip
+        
+        # 显示可用的SDK
+        ls -l $HOME/theos/sdks
+        
+        # 链接libarchive头文件
+        sudo ln -sf /opt/homebrew/include/archive.h $HOME/theos/vendor/include/
+        sudo ln -sf /opt/homebrew/include/archive_entry.h $HOME/theos/vendor/include/
+        
+        # 设置项目头文件
+        mkdir -p $HOME/theos/include/TrollStore
+        cp -r $GITHUB_WORKSPACE/Shared/*.h $HOME/theos/include/
+        
+    - name: Setup environment
+      run: |
+        echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+        echo "PATH=$HOME/theos/bin:$PATH" >> $GITHUB_ENV
+        echo "THEOS_DEVICE_IP=127.0.0.1" >> $GITHUB_ENV
+        echo "THEOS_DEVICE_PORT=2222" >> $GITHUB_ENV
+        echo "THEOS_PLATFORM=ios" >> $GITHUB_ENV
+        echo "THEOS_PACKAGE_SCHEME=rootless" >> $GITHUB_ENV
+        echo "LIBRARY_PATH=/opt/homebrew/lib:$LIBRARY_PATH" >> $GITHUB_ENV
+        echo "C_INCLUDE_PATH=/opt/homebrew/include:$C_INCLUDE_PATH" >> $GITHUB_ENV
+        
+    - name: Build
+      run: |
+        export THEOS=$HOME/theos
+        export PATH=$HOME/theos/bin:$PATH
+        make clean
+        make package FINALPACKAGE=1 ADDITIONAL_CFLAGS="-I$GITHUB_WORKSPACE/Shared -I$HOME/theos/include" ADDITIONAL_OBJCFLAGS="-I$GITHUB_WORKSPACE/Shared -I$HOME/theos/include"
+        
+    - name: Package artifacts
+      run: |
+        mkdir -p artifacts
+        find . -name "*.tar" -exec cp {} artifacts/ \;
+        find . -name "ldid" -exec cp {} artifacts/ \;
+        find . -name "*.deb" -exec cp {} artifacts/ \;
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: TrollStore-build
+        path: artifacts/ 
